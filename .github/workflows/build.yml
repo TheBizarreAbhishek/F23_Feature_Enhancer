@@ -1,9 +1,7 @@
 name: Create and Publish Release
 
 on:
-  push:
-    branches:
-      - main
+  workflow_dispatch:  # Trigger the workflow manually from the GitHub UI
 
 jobs:
   release:
@@ -57,6 +55,8 @@ jobs:
       uses: softprops/action-gh-release@v1
       with:
         tag_name: ${{ env.new_version }}
+        release_name: "F23_Feature_Enhancer-${{ env.new_version }}"  # Set the release title based on the tag
+        body: "This is the release for version ${{ env.new_version }}."
         files: ${{ env.zip_name }}
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
