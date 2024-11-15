@@ -1,101 +1,115 @@
-name: Build and Release Module
+name: Build and Release
 
 on:
-  workflow_dispatch: # Trigger manually from GitHub Actions UI
+  workflow_dispatch:
 
 jobs:
   release:
     runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v2
 
-      - name: Get the latest tag, or set to v1.0.0 if no tags exist
+    steps:
+      # Checkout repository
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      # Get the latest tag (or set to v1.0.0 if no tag exists)
+      - name: Get the latest tag
         id: get_tag
         run: |
           latest_tag=$(git describe --tags --abbrev=0 || echo "v1.0.0")
           echo "Latest tag: $latest_tag"
           echo "latest_tag=$latest_tag" >> $GITHUB_ENV
 
-      - name: Extract version and version code
+      # Extract version numbers (major, minor, patch)
+      - name: Extract version numbers
         id: extract_version
         run: |
-          latest_tag=${{ env.latest_tag }}
+          major=$(echo $latest_tag | cut -d. -f1 | tr -d 'v')
+          minor=$(echo $latest_tag | cut -d. -f2)
+          patch=$(echo $latest_tag | cut -d. -f3)
           
-          # Check if this is the first release (v1.0.0)
-          if [ "$latest_tag" == "v1.0.0" ]; then
-            new_version="v1.0.0"
-            new_version_code="1000"
-          else
-            # Increment version
-            IFS='.' read -r major minor patch <<< "${latest_tag//v/}"
-            patch=$((patch + 1))
-            new_version="v$major.$minor.$patch"
-            new_version_code=$((patch + 1000))
-          fi
-
+          patch=$((patch + 1))  # Increment the patch number for the next version
+          
+          new_version="v$major.$minor.$patch"
+          new_version_code=$((1000 + patch))  # Increment version code based on patch
+          
           echo "New version: $new_version"
           echo "New version code: $new_version_code"
+          
           echo "new_version=$new_version" >> $GITHUB_ENV
           echo "new_version_code=$new_version_code" >> $GITHUB_ENV
 
-      - name: Update module.prop and update.json (only if version changes)
+      # Check if version and version code in module.prop need to be updated
+      - name: Check and update module.prop
+        id: update_module
         run: |
-          version_changed=false
-          # Update version and versionCode in module.prop
-          if grep -q "version=${{ env.latest_tag }}" module.prop; then
-            sed -i "s/version=${{ env.latest_tag }}/version=${{ env.new_version }}/g" module.prop
-            version_changed=true
-          fi
-          if grep -q "versionCode=[0-9]*" module.prop; then
-            sed -i "s/versionCode=[0-9]*/versionCode=${{ env.new_version_code }}/g" module.prop
-            version_changed=true
-          fi
+          module_version=$(grep -oP 'version=\K\S+' module.prop)
+          module_version_code=$(grep -oP 'versionCode=\K\d+' module.prop)
 
-          # Update version and versionCode in update.json
-          if grep -q "version\": \"${{ env.latest_tag }}\"" update.json; then
-            sed -i "s/version\": \"${{ env.latest_tag }}\"/version\": \"${{ env.new_version }}\"/g" update.json
-            version_changed=true
-          fi
-          if grep -q "versionCode\": [0-9]*" update.json; then
-            sed -i "s/versionCode\": [0-9]*/versionCode\": ${new_version_code}/g" update.json
-            version_changed=true
-          fi
+          echo "Current version in module.prop: $module_version"
+          echo "Current versionCode in module.prop: $module_version_code"
 
-          # Update zipUrl in update.json
-          if grep -q "zipUrl\": \"https://github.com/TheBizarreAbhishek/F23_Feature_Enhancer/releases/download/${{ env.latest_tag }}" update.json; then
-            sed -i "s|\"zipUrl\": \".*\"|\"zipUrl\": \"https://github.com/TheBizarreAbhishek/F23_Feature_Enhancer/releases/download/${{ env.new_version }}/F23_Feature_Enhancer-${{ env.new_version }}.zip\"|g" update.json
-            version_changed=true
-          fi
-
-          # If version changed, commit changes
-          if [ "$version_changed" == "true" ]; then
-            git config user.name "github-actions[bot]"
-            git config user.email "github-actions[bot]@users.noreply.github.com"
-            git add module.prop update.json
-            git commit -m "Update version to ${{ env.new_version }} and version code to ${{ env.new_version_code }}"
-            git push
+          if [[ "$module_version" != "$new_version" ]]; then
+            echo "Updating version in module.prop"
+            sed -i "s/version=$module_version/version=$new_version/" module.prop
           else
-            echo "No changes in version or version code, skipping commit."
+            echo "Version in module.prop is up to date"
           fi
 
-      - name: Create new tag for the release
-        run: |
-          git tag ${{ env.new_version }}
-          git push origin ${{ env.new_version }}
+          if [[ "$module_version_code" != "$new_version_code" ]]; then
+            echo "Updating versionCode in module.prop"
+            sed -i "s/versionCode=$module_version_code/versionCode=$new_version_code/" module.prop
+          else
+            echo "versionCode in module.prop is up to date"
+          fi
 
-      - name: Build zip file for the release
-        run: |
-          # Replace this with your actual zip build command
-          mkdir -p release
-          zip -r release/F23_Feature_Enhancer-${{ env.new_version }}.zip * # Adjust path if necessary
+          # Commit changes to module.prop
+          git add module.prop
+          git commit -m "Update version to $new_version and version code to $new_version_code in module.prop"
+          git push
 
-      - name: Create a GitHub release
+      # Check and update update.json
+      - name: Check and update update.json
+        id: update_json
+        run: |
+          update_version=$(jq -r '.version' update.json)
+          update_version_code=$(jq -r '.versionCode' update.json)
+
+          echo "Current version in update.json: $update_version"
+          echo "Current versionCode in update.json: $update_version_code"
+
+          if [[ "$update_version" != "$new_version" ]]; then
+            echo "Updating version in update.json"
+            jq ".version = \"$new_version\"" update.json > temp.json && mv temp.json update.json
+          else
+            echo "Version in update.json is up to date"
+          fi
+
+          if [[ "$update_version_code" != "$new_version_code" ]]; then
+            echo "Updating versionCode in update.json"
+            jq ".versionCode = $new_version_code" update.json > temp.json && mv temp.json update.json
+          else
+            echo "versionCode in update.json is up to date"
+          fi
+
+          # Commit changes to update.json
+          git add update.json
+          git commit -m "Update version to $new_version and version code to $new_version_code in update.json"
+          git push
+
+      # Upload the zip file
+      - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: ${{ env.new_version }}
-          name: "F23_Feature_Enhancer-${{ env.new_version }}"
-          body: "Release notes for version ${{ env.new_version }}"
-          files: release/F23_Feature_Enhancer-${{ env.new_version }}.zip
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          files: F23_Feature_Enhancer-$new_version.zip
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      # Create GitHub release with the zip file
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: $new_version
+          release_name: F23_Feature_Enhancer-$new_version
+          body: "Release notes for $new_version"
+          files: F23_Feature_Enhancer-$new_version.zip
+          token: ${{ secrets.GITHUB_TOKEN }}
