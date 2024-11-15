@@ -1,97 +1,77 @@
-name: Create Zip and Publish Release
+name: Build and Release
 
 on:
   workflow_dispatch:
-
+  
 jobs:
-  release:
+  build:
     runs-on: ubuntu-latest
-
+    
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v2
+    - name: Checkout Code
+      uses: actions/checkout@v2
 
-      # Step 1: Get the latest tag (to determine the version)
-      - name: Get latest tag
-        id: get_latest_tag
-        run: |
-          latest_tag=$(git describe --tags --abbrev=0 || echo "v0.0.0")  # Get latest tag or default to v0.0.0
-          echo "Latest tag: $latest_tag"
-          echo "::set-output name=latest_tag::$latest_tag"
+    - name: Set up JDK (if needed)
+      uses: actions/setup-java@v2
+      with:
+        java-version: '11'
 
-      # Step 2: Determine the new version and version code
-      - name: Set new version and version code
-        id: set_version
-        run: |
-          # Parse the current version from the latest tag
-          latest_version=${{ steps.get_latest_tag.outputs.latest_tag }}
-          
-          # Strip the 'v' from the tag version and increment it
-          IFS='.' read -r major minor patch <<< "${latest_version:1}"
-          
-          # Increment the patch version
-          patch=$((patch + 1))
-          
-          # Set the new version and version code
-          new_version="v$major.$minor.$patch"
-          new_version_code=$((1000 + patch))  # You can adjust version code logic as needed
-          
-          echo "New version: $new_version"
-          echo "New versionCode: $new_version_code"
-          echo "::set-output name=new_version::$new_version"
-          echo "::set-output name=new_version_code::$new_version_code"
+    - name: Set Version and VersionCode
+      id: set_version
+      run: |
+        # Get latest tag
+        latest_tag=$(git describe --tags --abbrev=0)
+        latest_version=$(echo $latest_tag | sed 's/v//')
+        version_code=$((${latest_version//./} * 1000))
 
-      # Step 3: Check if the version and versionCode need to be updated
-      - name: Check if module.prop and update.json need updating
-        run: |
-          # Read current version and versionCode from module.prop and update.json
-          current_version=$(grep '^version=' module.prop | cut -d'=' -f2)
-          current_version_code=$(grep '^versionCode=' module.prop | cut -d'=' -f2)
-          
-          current_update_version=$(jq -r '.version' update.json)
-          current_update_version_code=$(jq -r '.versionCode' update.json)
+        # Set new version and versionCode
+        new_version="v$((${latest_version%%.*} + 1)).$((${latest_version#*.} + 1)).0"
+        new_version_code=$((version_code + 1))
 
-          echo "Current version in module.prop: $current_version"
-          echo "Current versionCode in module.prop: $current_version_code"
-          echo "Current version in update.json: $current_update_version"
-          echo "Current versionCode in update.json: $current_update_version_code"
+        echo "New Version: $new_version"
+        echo "New VersionCode: $new_version_code"
 
-          # Compare with the new version and version code
-          if [[ "$current_version" != "${{ steps.set_version.outputs.new_version }}" ]] || [[ "$current_version_code" != "${{ steps.set_version.outputs.new_version_code }}" ]]; then
-            echo "Need to update version and versionCode"
-            echo "::set-output name=update_required::true"
-          else
-            echo "No update required"
-            echo "::set-output name=update_required::false"
-          fi
+        echo "::set-output name=new_version::$new_version"
+        echo "::set-output name=new_version_code::$new_version_code"
 
-      # Step 4: Update module.prop and update.json if necessary
-      - name: Update version and versionCode if required
-        if: steps.check_version.outputs.update_required == 'true'
-        run: |
-          # Update module.prop with new version and versionCode
-          sed -i "s/^version=.*/version=${{ steps.set_version.outputs.new_version }}/" module.prop
-          sed -i "s/^versionCode=.*/versionCode=${{ steps.set_version.outputs.new_version_code }}/" module.prop
+    - name: Check if version needs updating
+      id: check_version
+      run: |
+        # Read current version and versionCode from module.prop and update.json
+        current_version=$(grep '^version=' module.prop | cut -d'=' -f2)
+        current_version_code=$(grep '^versionCode=' module.prop | cut -d'=' -f2)
+        
+        current_update_version=$(jq -r '.version' update.json)
+        current_update_version_code=$(jq -r '.versionCode' update.json)
 
-          # Update update.json with new version and versionCode
-          jq ".version = \"${{ steps.set_version.outputs.new_version }}\" | .versionCode = ${{
-            steps.set_version.outputs.new_version_code }}" update.json > temp.json && mv temp.json update.json
+        if [[ "$current_version" != "${{ steps.set_version.outputs.new_version }}" ]] || [[ "$current_version_code" != "${{ steps.set_version.outputs.new_version_code }}" ]]; then
+          echo "Version needs to be updated"
+          echo "::set-output name=update_required::true"
+        else
+          echo "No version update needed"
+          echo "::set-output name=update_required::false"
+        fi
 
-          # Show the changes
-          cat module.prop
-          cat update.json
+    - name: Update version and versionCode
+      if: steps.check_version.outputs.update_required == 'true'
+      run: |
+        # Update module.prop
+        sed -i "s/^version=.*/version=${{ steps.set_version.outputs.new_version }}/" module.prop
+        sed -i "s/^versionCode=.*/versionCode=${{ steps.set_version.outputs.new_version_code }}/" module.prop
 
-          # Commit changes if there are updates
-          git add module.prop update.json
-          git commit -m "Update version to ${{ steps.set_version.outputs.new_version }} and versionCode to ${{ steps.set_version.outputs.new_version_code }}"
-          git push origin main
+        # Update update.json
+        jq ".version = \"${{ steps.set_version.outputs.new_version }}\" | .versionCode = ${{
+          steps.set_version.outputs.new_version_code }}" update.json > temp.json && mv temp.json update.json
 
-      # Step 5: Create a release if version was updated
-      - name: Create Release
-        if: steps.check_version.outputs.update_required == 'true'
-        uses: softprops/action-gh-release@v1
-        with:
-          files:
-            - F23_Feature_Enhancer.zip
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # Commit the changes
+        git add module.prop update.json
+        git commit -m "Update version to ${{ steps.set_version.outputs.new_version }} and versionCode to ${{ steps.set_version.outputs.new_version_code }}"
+        git push origin main
+
+    - name: Create a release
+      run: |
+        # Create the release zip file
+        zip -r F23_Feature_Enhancer-${{ steps.set_version.outputs.new_version }}.zip .
+
+        # Upload the release asset
+        gh release create ${{ steps.set_version.outputs.new_version }} F23_Feature_Enhancer-${{ steps.set_version.outputs.new_version }}.zip --title "Release ${{ steps.set_version.outputs.new_version }}" --notes "New release"
