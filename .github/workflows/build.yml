@@ -26,18 +26,56 @@ jobs:
         latest_tag=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
         echo "latest_tag=$latest_tag" >> $GITHUB_ENV
 
-        # Extract the version numbers and increment the patch version
-        IFS='.' read -r -a version_parts <<< "${latest_tag#v}"
+        # Check if it's the first release (no previous tag)
         if [ "${latest_tag}" = "v0.0.0" ]; then
-          # Set the first version to v1.0.0 if no previous tag exists
+          # First release, use v1.0.0 and versionCode 1000
           new_version="v1.0.0"
+          new_version_code=1000
         else
-          version_parts[2]=$((version_parts[2] + 1))
+          # Increment version from the latest tag
+          IFS='.' read -r -a version_parts <<< "${latest_tag#v}"
+          version_parts[2]=$((version_parts[2] + 1))  # Increment patch version
           new_version="v${version_parts[0]}.${version_parts[1]}.${version_parts[2]}"
+          new_version_code=$(( $(jq '.versionCode' update.json) + 1 ))  # Increment versionCode
         fi
 
         echo "new_version=$new_version" >> $GITHUB_ENV
-        echo "New version: $new_version"
+        echo "new_version_code=$new_version_code" >> $GITHUB_ENV
+        echo "New version: $new_version, versionCode: $new_version_code"
+
+    - name: Update update.json with new version, versionCode, and zipUrl
+      run: |
+        # Define the new zip URL based on the new version
+        zip_url="https://github.com/TheBizarreAbhishek/F23_Feature_Enhancer/releases/download/${{ env.new_version }}/F23_Feature_Enhancer.zip"
+        
+        # Update the update.json file with the new version, versionCode, and zipUrl
+        echo "Updating update.json with version ${{ env.new_version }}, versionCode ${{ env.new_version_code }} and zipUrl $zip_url"
+        
+        jq --arg new_version "${{ env.new_version }}" --arg zip_url "$zip_url" --argjson new_version_code "${{ env.new_version_code }}" \
+          '.version = $new_version | .versionCode = $new_version_code | .zipUrl = $zip_url' update.json > tmp.json && mv tmp.json update.json
+        cat update.json  # Optional: Print the updated JSON to verify
+
+    - name: Commit changes to update.json
+      run: |
+        git add update.json
+        git commit -m "Update update.json with version ${{ env.new_version }} and versionCode ${{ env.new_version_code }}"
+        git push origin main
+
+    - name: Update module.prop with new version and versionCode
+      run: |
+        # Update version and versionCode in module.prop
+        echo "Updating module.prop with version ${{ env.new_version }} and versionCode ${{ env.new_version_code }}"
+        
+        sed -i "s/^version=.*/version=${{ env.new_version }}/" module.prop
+        sed -i "s/^versionCode=.*/versionCode=${{ env.new_version_code }}/" module.prop
+        
+        cat module.prop  # Optional: Print the updated module.prop to verify
+
+    - name: Commit changes to module.prop
+      run: |
+        git add module.prop
+        git commit -m "Update module.prop with version ${{ env.new_version }} and versionCode ${{ env.new_version_code }}"
+        git push origin main
 
     - name: Create ZIP of module
       run: |
