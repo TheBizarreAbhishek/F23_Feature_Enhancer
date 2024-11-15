@@ -65,10 +65,18 @@ jobs:
           git tag ${{ env.new_version }}
           git push origin ${{ env.new_version }}
 
+      - name: Build zip file for the release
+        run: |
+          # Replace this with your actual zip build command
+          mkdir -p release
+          zip -r release/F23_Feature_Enhancer-${{ env.new_version }}.zip * # Adjust path if necessary
+
       - name: Create a GitHub release
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ env.new_version }}
           name: "F23_Feature_Enhancer-${{ env.new_version }}"
-          files: "F23_Feature_Enhancer-${{ env.new_version }}.zip"
           body: "Release notes for version ${{ env.new_version }}"
+          files: release/F23_Feature_Enhancer-${{ env.new_version }}.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
