@@ -41,10 +41,16 @@ jobs:
 
       - name: Update module.prop and update.json
         run: |
+          # Update version and versionCode in module.prop
           sed -i "s/version=${{ env.latest_tag }}/version=${{ env.new_version }}/g" module.prop
           sed -i "s/versionCode=[0-9]*/versionCode=${{ env.new_version_code }}/g" module.prop
+
+          # Update version and versionCode in update.json
           sed -i "s/version\": \".*\"/version\": \"${{ env.new_version }}\"/g" update.json
           sed -i "s/versionCode\": [0-9]*/versionCode\": ${new_version_code}/g" update.json
+
+          # Update zipUrl in update.json
+          sed -i "s|\"zipUrl\": \".*\"|\"zipUrl\": \"https://github.com/TheBizarreAbhishek/F23_Feature_Enhancer/releases/download/${{ env.new_version }}/F23_Feature_Enhancer-${{ env.new_version }}.zip\"|g" update.json
 
       - name: Commit changes
         run: |
@@ -64,5 +70,5 @@ jobs:
         with:
           tag_name: ${{ env.new_version }}
           name: "F23_Feature_Enhancer-${{ env.new_version }}"
-          files: "F23_Feature_Enhancer-v${{ env.new_version }}.zip"
+          files: "F23_Feature_Enhancer-${{ env.new_version }}.zip"
           body: "Release notes for version ${{ env.new_version }}"
