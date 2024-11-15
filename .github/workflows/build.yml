@@ -13,7 +13,11 @@ jobs:
       - name: Get the latest tag, or set to v1.0.0 if no tags exist
         id: get_tag
         run: |
-          latest_tag=$(git describe --tags --abbrev=0 || echo "v1.0.0")
+          # Fetch all tags
+          git fetch --tags
+          
+          # Get the latest tag or default to v1.0.0
+          latest_tag=$(git describe --tags --abbrev=0 2>/dev/null || echo "v1.0.0")
           echo "Latest tag: $latest_tag"
           echo "latest_tag=$latest_tag" >> $GITHUB_ENV
 
@@ -21,11 +25,11 @@ jobs:
         id: extract_version
         run: |
           latest_tag=${{ env.latest_tag }}
-          
+
           # Check if this is the first release (v1.0.0)
           if [ "$latest_tag" == "v1.0.0" ]; then
-            new_version="v1.0.0"
-            new_version_code="1000"
+            new_version="v1.0.1"
+            new_version_code="1001"
           else
             # Increment version
             IFS='.' read -r major minor patch <<< "${latest_tag//v/}"
@@ -42,30 +46,41 @@ jobs:
       - name: Update module.prop and update.json
         run: |
           # Update version and versionCode in module.prop
-          sed -i "s/version=${{ env.latest_tag }}/version=${{ env.new_version }}/g" module.prop
+          sed -i "s/version=.*/version=${{ env.new_version }}/g" module.prop
           sed -i "s/versionCode=[0-9]*/versionCode=${{ env.new_version_code }}/g" module.prop
 
           # Update version and versionCode in update.json
           sed -i "s/version\": \".*\"/version\": \"${{ env.new_version }}\"/g" update.json
-          sed -i "s/versionCode\": [0-9]*/versionCode\": ${new_version_code}/g" update.json
+          sed -i "s/versionCode\": [0-9]*/versionCode\": ${{ env.new_version_code }}/g" update.json
 
           # Update zipUrl in update.json
           sed -i "s|\"zipUrl\": \".*\"|\"zipUrl\": \"https://github.com/TheBizarreAbhishek/F23_Feature_Enhancer/releases/download/${{ env.new_version }}/F23_Feature_Enhancer-${{ env.new_version }}.zip\"|g" update.json
 
-      - name: Commit changes
+      - name: Commit changes if there are any
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add module.prop update.json
-          git commit -m "Update version to ${{ env.new_version }} and version code to ${{ env.new_version_code }}"
-          git push
+          
+          # Check if there are any changes before committing
+          if ! git diff --quiet; then
+            git commit -m "Update version to ${{ env.new_version }} and version code to ${{ env.new_version_code }}"
+            git push
+          else
+            echo "No changes to commit."
+          fi
+
+      - name: Create the ZIP file
+        run: |
+          # Create a ZIP file of the current directory excluding .git files
+          zip -r F23_Feature_Enhancer-${{ env.new_version }}.zip . -x "*.git*"
 
       - name: Create new tag for the release
         run: |
           git tag ${{ env.new_version }}
           git push origin ${{ env.new_version }}
 
-      - name: Create a GitHub release
+      - name: Create a GitHub release and upload ZIP
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ env.new_version }}
