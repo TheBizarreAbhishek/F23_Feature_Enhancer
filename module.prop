@@ -1,7 +1,7 @@
 id=f23mods
 name=F23 Feature Enhancer
 version=
-versionCode=
+versionCode=1000
 author=Abhishek Babu
 description=Module to add Flagship Features in f23/m23
 updateJson=https://raw.githubusercontent.com/TheBizarreAbhishek/F23_Feature_Enhancer/main/update.json
