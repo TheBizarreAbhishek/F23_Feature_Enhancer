@@ -1,97 +1,68 @@
-name: Build and Release Magisk Module
+name: Build and Release Module
 
 on:
-  workflow_dispatch:
-    inputs:
-      version:
-        description: 'Version tag for the release'
-        required: true
-        default: 'v1.0.0'
+  workflow_dispatch: # Trigger manually from GitHub Actions UI
 
 jobs:
-  build:
+  release:
     runs-on: ubuntu-latest
-
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v2
+      - name: Checkout code
+        uses: actions/checkout@v2
 
-    - name: Get latest version tag
-      id: get_version_tag
-      run: |
-        # Get the latest tag, if no tag exists, set it to v1.0.0
-        latest_tag=$(git describe --tags --abbrev=0 || echo "v1.0.0")
-        echo "Latest tag: $latest_tag"
-        echo "::set-output name=latest_tag::$latest_tag"
+      - name: Get the latest tag, or set to v1.0.0 if no tags exist
+        id: get_tag
+        run: |
+          latest_tag=$(git describe --tags --abbrev=0 || echo "v1.0.0")
+          echo "Latest tag: $latest_tag"
+          echo "latest_tag=$latest_tag" >> $GITHUB_ENV
 
-    - name: Calculate next version and version code
-      id: calculate_version
-      run: |
-        # Extract the version number (e.g., v1.0.9 -> major=1, minor=0, patch=9)
-        VERSION=${{ steps.get_version_tag.outputs.latest_tag }}
-        major=$(echo $VERSION | cut -d. -f1 | sed 's/v//')
-        minor=$(echo $VERSION | cut -d. -f2)
-        patch=$(echo $VERSION | cut -d. -f3)
+      - name: Extract version and version code
+        id: extract_version
+        run: |
+          latest_tag=${{ env.latest_tag }}
+          
+          # Check if this is the first release (v1.0.0)
+          if [ "$latest_tag" == "v1.0.0" ]; then
+            new_version="v1.0.0"
+            new_version_code="1000"
+          else
+            # Increment version
+            IFS='.' read -r major minor patch <<< "${latest_tag//v/}"
+            patch=$((patch + 1))
+            new_version="v$major.$minor.$patch"
+            new_version_code=$((patch + 1000))
+          fi
 
-        # Increment the patch or minor version
-        if [ "$patch" -lt 9 ]; then
-          patch=$((patch + 1))
-        else
-          patch=0
-          minor=$((minor + 1))
-        fi
+          echo "New version: $new_version"
+          echo "New version code: $new_version_code"
+          echo "new_version=$new_version" >> $GITHUB_ENV
+          echo "new_version_code=$new_version_code" >> $GITHUB_ENV
 
-        # Construct the new version and version code
-        new_version="v$major.$minor.$patch"
-        echo "New version: $new_version"
+      - name: Update module.prop and update.json
+        run: |
+          sed -i "s/version=${{ env.latest_tag }}/version=${{ env.new_version }}/g" module.prop
+          sed -i "s/versionCode=[0-9]*/versionCode=${{ env.new_version_code }}/g" module.prop
+          sed -i "s/version\": \".*\"/version\": \"${{ env.new_version }}\"/g" update.json
+          sed -i "s/versionCode\": [0-9]*/versionCode\": ${new_version_code}/g" update.json
 
-        # Increment the version code (1000, 1001, 1002, ...)
-        version_code=$(( $(grep -oP 'versionCode=\K[0-9]+' module.prop || echo "1000") + 1 ))
-        echo "New version code: $version_code"
+      - name: Commit changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add module.prop update.json
+          git commit -m "Update version to ${{ env.new_version }} and version code to ${{ env.new_version_code }}"
+          git push
 
-        # Set outputs
-        echo "::set-output name=new_version::$new_version"
-        echo "::set-output name=new_version_code::$version_code"
+      - name: Create new tag for the release
+        run: |
+          git tag ${{ env.new_version }}
+          git push origin ${{ env.new_version }}
 
-    - name: Update module.prop with new version and version code
-      run: |
-        new_version=${{ steps.calculate_version.outputs.new_version }}
-        new_version_code=${{ steps.calculate_version.outputs.new_version_code }}
-
-        # Update version in module.prop
-        sed -i "s/^version=.*/version=$new_version/" module.prop
-        sed -i "s/^versionCode=[0-9]*/versionCode=$new_version_code/" module.prop
-
-        # Update update.json
-        sed -i "s/\"version\": \".*\"/\"version\": \"$new_version\"/" update.json
-        sed -i "s/\"versionCode\": [0-9]*/\"versionCode\": $new_version_code/" update.json
-
-    - name: Commit and push changes to module.prop and update.json
-      run: |
-        git config user.name "github-actions[bot]"
-        git config user.email "github-actions[bot]@users.noreply.github.com"
-        git add module.prop update.json
-        git commit -m "Update version to ${{ steps.calculate_version.outputs.new_version }} and version code to ${{ steps.calculate_version.outputs.new_version_code }}"
-        git push origin main
-
-    - name: Create GitHub Release
-      uses: softprops/action-gh-release@v1
-      with:
-        tag_name: ${{ steps.calculate_version.outputs.new_version }}
-        release_name: F23_Feature_Enhancer-${{ steps.calculate_version.outputs.new_version }}
-        body: |
-          - Changelog: https://raw.githubusercontent.com/TheBizarreAbhishek/F23_Feature_Enhancer/main/changelog.md
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-    - name: Zip module files
-      run: |
-        # Zip the module files
-        zip -r F23_Feature_Enhancer-${{ steps.calculate_version.outputs.new_version }}.zip *
-        
-    - name: Upload release assets
-      uses: softprops/action-gh-release@v1
-      with:
-        files: F23_Feature_Enhancer-${{ steps.calculate_version.outputs.new_version }}.zip
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Create a GitHub release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ env.new_version }}
+          name: "F23_Feature_Enhancer-${{ env.new_version }}"
+          files: "F23_Feature_Enhancer-v${{ env.new_version }}.zip"
+          body: "Release notes for version ${{ env.new_version }}"
