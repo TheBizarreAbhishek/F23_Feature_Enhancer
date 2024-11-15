@@ -10,33 +10,42 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v2
 
-      - name: Get the latest tag, or set to v1.0.0 if no tags exist
+      - name: Get the latest tag or default to v1.0.0
         id: get_tag
         run: |
-          # Fetch all tags
+          # Fetch all tags from the remote
           git fetch --tags
           
-          # Get the latest tag or default to v1.0.0
+          # Get the latest tag, or if none exist, set to v1.0.0
           latest_tag=$(git describe --tags --abbrev=0 2>/dev/null || echo "v1.0.0")
           echo "Latest tag: $latest_tag"
           echo "latest_tag=$latest_tag" >> $GITHUB_ENV
 
-      - name: Extract version and version code
+      - name: Extract and increment version and version code
         id: extract_version
         run: |
           latest_tag=${{ env.latest_tag }}
 
-          # Check if this is the first release (v1.0.0)
-          if [ "$latest_tag" == "v1.0.0" ]; then
-            new_version="v1.0.1"
-            new_version_code="1001"
-          else
-            # Increment version
-            IFS='.' read -r major minor patch <<< "${latest_tag//v/}"
-            patch=$((patch + 1))
-            new_version="v$major.$minor.$patch"
-            new_version_code=$((patch + 1000))
+          # Extract the version numbers
+          IFS='.' read -r major minor patch <<< "${latest_tag//v/}"
+
+          # Increment the patch version
+          patch=$((patch + 1))
+
+          # If patch reaches 10, reset to 0 and increment the minor version
+          if [ "$patch" -ge 10 ]; then
+            patch=0
+            minor=$((minor + 1))
           fi
+
+          # Construct the new version
+          new_version="v$major.$minor.$patch"
+
+          # Calculate the new version code
+          # Version code starts from 1000 and increases by 1 for each release
+          git fetch --tags
+          total_tags=$(git tag | wc -l)
+          new_version_code=$((1000 + total_tags))
 
           echo "New version: $new_version"
           echo "New version code: $new_version_code"
