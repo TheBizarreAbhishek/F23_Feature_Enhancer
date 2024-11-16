@@ -2,8 +2,8 @@ name: Package, Update Version, and Release
 
 on:
   push:
-    tags:
-      - 'v*.*.*'  # Only trigger for semantic version tags
+    branches:
+      - main  # Trigger when there is a push to the main branch
 
 jobs:
   build-and-release:
@@ -13,24 +13,36 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v3
 
-      - name: Extract Tag Info and Version Code
+      - name: Get Latest Tag and Increment Version
         id: tag_info
         run: |
-          TAG_NAME="${GITHUB_REF#refs/tags/}"
-          VERSION_CODE=$((1000 + $(echo $TAG_NAME | sed 's/v//; s/\.//g')))
-          echo "tag_name=$TAG_NAME" >> $GITHUB_ENV
-          echo "version_code=$VERSION_CODE" >> $GITHUB_ENV
+          # Check if there are existing tags, else use v1.0.0
+          LATEST_TAG=$(git describe --tags `git rev-list --tags --max-count=1` || echo "v0.0.0")
+          echo "LATEST_TAG=$LATEST_TAG" >> $GITHUB_ENV
+          
+          # Increment the patch version for the next release
+          VERSION_PARTS=(${LATEST_TAG//./ })
+          PATCH_VERSION=$((VERSION_PARTS[2] + 1))
+          NEW_TAG="v${VERSION_PARTS[0]}.${VERSION_PARTS[1]}.$PATCH_VERSION"
+          echo "NEW_TAG=$NEW_TAG" >> $GITHUB_ENV
+          
+          echo "New tag will be: $NEW_TAG"
+
+      - name: Create New Tag
+        run: |
+          git tag ${{ env.NEW_TAG }}
+          git push origin ${{ env.NEW_TAG }}
 
       - name: Update module.prop
         run: |
-          sed -i "s/^version=.*/version=${{ env.tag_name }}/" module.prop
-          sed -i "s/^versionCode=.*/versionCode=${{ env.version_code }}/" module.prop
+          sed -i "s/^version=.*/version=${{ env.NEW_TAG }}/" module.prop
+          sed -i "s/^versionCode=.*/versionCode=$((1000 + $(echo ${{ env.NEW_TAG }} | sed 's/v//; s/\.//g')))/" module.prop
 
       - name: Update update.json
         run: |
-          jq ".version = \"${{ env.tag_name }}\" |
-              .versionCode = ${{ env.version_code }} |
-              .zipUrl = \"https://github.com/TheBizarreAbhishek/F23_Feature_Enhancer/releases/download/${{ env.tag_name }}/F23_Feature_Enhancer-${{ env.tag_name }}.zip\"" \
+          jq ".version = \"${{ env.NEW_TAG }}\" |
+              .versionCode = $((1000 + $(echo ${{ env.NEW_TAG }} | sed 's/v//; s/\.//g'))) ) |
+              .zipUrl = \"https://github.com/TheBizarreAbhishek/F23_Feature_Enhancer/releases/download/${{ env.NEW_TAG }}/F23_Feature_Enhancer-${{ env.NEW_TAG }}.zip\"" \
             update.json > tmp.json && mv tmp.json update.json
 
       - name: Set up Zip Archive
@@ -38,13 +50,13 @@ jobs:
           mkdir package
           cp -r ./* package/
           cd package
-          zip -r ../F23_Feature_Enhancer-${{ env.tag_name }}.zip .
+          zip -r ../F23_Feature_Enhancer-${{ env.NEW_TAG }}.zip .
           cd ..
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
-          title: "F23 Feature Enhancer ${{ env.tag_name }}"
-          files: F23_Feature_Enhancer-${{ env.tag_name }}.zip
+          title: "F23 Feature Enhancer ${{ env.NEW_TAG }}"
+          files: F23_Feature_Enhancer-${{ env.NEW_TAG }}.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
