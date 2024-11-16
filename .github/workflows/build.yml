@@ -17,7 +17,7 @@ jobs:
         id: tag_info
         run: |
           # Check if there are existing tags, else use v1.0.0
-          LATEST_TAG=$(git describe --tags `git rev-list --tags --max-count=1` || echo "v0.0.0")
+          LATEST_TAG=$(git describe --tags `git rev-list --tags --max-count=1` || echo "v1.0.0")
           echo "LATEST_TAG=$LATEST_TAG" >> $GITHUB_ENV
           
           # Increment the patch version for the next release
